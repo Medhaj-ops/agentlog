@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentlog-sdk"
+version = "0.1.0a0"
+description = "OpenTelemetry-native observability for multi-agent LLM systems"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+authors = [{ name = "Medhaj" }]
+dependencies = [
+  "opentelemetry-api>=1.27.0",
+  "opentelemetry-sdk>=1.27.0",
+  "opentelemetry-exporter-otlp-proto-grpc>=1.27.0",
+  "opentelemetry-semantic-conventions>=0.48b0",
+]
+
+[project.optional-dependencies]
+openai = ["openai>=1.50.0"]
+anthropic = ["anthropic>=0.34.0"]
+dev = ["pytest>=8.0.0", "pytest-asyncio>=0.23.0", "ruff>=0.6.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["agentlog"]

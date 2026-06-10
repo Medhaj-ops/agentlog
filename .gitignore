@@ -216,3 +216,13 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# agentlog-specific
+clickhouse-data/
+.clickhouse-data/
+node_modules/
+.next/
+ui/dist/
+ui/.turbo/
+collector/_build/
+*.log
