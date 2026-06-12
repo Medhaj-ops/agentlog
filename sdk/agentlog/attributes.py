@@ -1,0 +1,8 @@
+SYSTEM = "gen_ai.system"
+REQUEST_MODEL = "gen_ai.request.model"
+RESPONSE_MODEL = "gen_ai.response.model"
+USAGE_INPUT_TOKENS = "gen_ai.usage.input_tokens"
+USAGE_OUTPUT_TOKENS = "gen_ai.usage.output_tokens"
+PROMPT = "gen_ai.prompt"
+COMPLETION = "gen_ai.completion"
+FINISH_REASON = "gen_ai.response.finish_reason"
