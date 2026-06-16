@@ -36,5 +36,17 @@ services:
       clickhouse:
         condition: service_healthy
 
+  ui:
+    build: ./ui
+    container_name: agentlog-ui
+    ports:
+      - "3000:3000"
+    environment:
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_DB: agentlog
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+
 volumes:
   clickhouse-data:
