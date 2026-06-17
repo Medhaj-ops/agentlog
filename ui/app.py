@@ -26,7 +26,35 @@ async def query_clickhouse(sql: str) -> list[dict]:
 
 @app.get("/", response_class=HTMLResponse)
 async def trace_list(request: Request):
-    traces = await query_clickhouse("""
+    model_filter = request.query_params.get("model", "").strip()
+    min_tokens = request.query_params.get("min_tokens", "").strip()
+    max_tokens = request.query_params.get("max_tokens", "").strip()
+    finish_reason_filter = request.query_params.get("finish_reason", "").strip()
+    span_name_filter = request.query_params.get("span_name", "").strip()
+    status_filter = request.query_params.get("status", "").strip()
+
+    having_clauses = []
+    where_clauses = []
+
+    if model_filter:
+        where_clauses.append(f"SpanAttributes['gen_ai.request.model'] = '{_sql_escape(model_filter)}'")
+    if finish_reason_filter:
+        where_clauses.append(f"SpanAttributes['gen_ai.response.finish_reason'] = '{_sql_escape(finish_reason_filter)}'")
+    if span_name_filter:
+        where_clauses.append(f"SpanName LIKE '%{_sql_escape(span_name_filter)}%'")
+    if status_filter == "error":
+        where_clauses.append("StatusCode = 'STATUS_CODE_ERROR'")
+
+    where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+
+    if min_tokens:
+        having_clauses.append(f"total_input_tokens + total_output_tokens >= {int(min_tokens)}")
+    if max_tokens:
+        having_clauses.append(f"total_input_tokens + total_output_tokens <= {int(max_tokens)}")
+
+    having_sql = f"HAVING {' AND '.join(having_clauses)}" if having_clauses else ""
+
+    traces = await query_clickhouse(f"""
         SELECT
             TraceId as trace_id,
             min(Timestamp) as start_time,
@@ -36,7 +64,9 @@ async def trace_list(request: Request):
             sum(toInt64OrZero(SpanAttributes['gen_ai.usage.input_tokens'])) as total_input_tokens,
             sum(toInt64OrZero(SpanAttributes['gen_ai.usage.output_tokens'])) as total_output_tokens
         FROM spans
+        {where_sql}
         GROUP BY TraceId
+        {having_sql}
         ORDER BY start_time DESC
         LIMIT 50
     """)
@@ -71,6 +101,19 @@ async def trace_list(request: Request):
         title="Traces",
         content=f"""
         <h1>Traces</h1>
+        <form class="search-bar" method="get" action="/">
+            <input type="text" name="model" placeholder="Model (e.g. gpt-4o-mini)" value="{_escape(model_filter)}">
+            <input type="text" name="finish_reason" placeholder="Finish reason (stop, tool_calls)" value="{_escape(finish_reason_filter)}">
+            <input type="text" name="span_name" placeholder="Span name contains..." value="{_escape(span_name_filter)}">
+            <input type="number" name="min_tokens" placeholder="Min tokens" value="{_escape(min_tokens)}">
+            <input type="number" name="max_tokens" placeholder="Max tokens" value="{_escape(max_tokens)}">
+            <select name="status">
+                <option value="">Any status</option>
+                <option value="error" {"selected" if status_filter == "error" else ""}>Errors only</option>
+            </select>
+            <button type="submit">Search</button>
+            <a href="/" class="clear-btn">Clear</a>
+        </form>
         <table>
             <thead>
                 <tr>
@@ -221,6 +264,10 @@ def _escape(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def _sql_escape(text: str) -> str:
+    return text.replace("'", "''").replace("\\", "\\\\").replace("%", "\\%")
+
+
 PAGE_TEMPLATE = """<!DOCTYPE html>
 <html>
 <head>
@@ -237,6 +284,12 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
         th, td {{ padding: 10px 12px; text-align: left; border-bottom: 1px solid #21262d; }}
         th {{ color: #8b949e; font-weight: 500; font-size: 0.85rem; text-transform: uppercase; }}
         tr:hover {{ background: #161b22; }}
+        .search-bar {{ display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; align-items: center; }}
+        .search-bar input, .search-bar select {{ background: #161b22; border: 1px solid #21262d; color: #e6edf3; padding: 8px 12px; border-radius: 6px; font-size: 0.85rem; }}
+        .search-bar input::placeholder {{ color: #484f58; }}
+        .search-bar button {{ background: #238636; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }}
+        .search-bar button:hover {{ background: #2ea043; }}
+        .clear-btn {{ color: #8b949e; font-size: 0.85rem; padding: 8px; }}
         .trace-tree {{ margin-top: 16px; }}
         .span {{ border: 1px solid #21262d; border-radius: 6px; padding: 12px; margin-bottom: 8px; background: #161b22; }}
         .span.error {{ border-color: #f85149; }}
