@@ -88,6 +88,7 @@ async def trace_list(request: Request):
 
         rows += f"""
         <tr>
+            <td><input type="checkbox" name="trace" value="{t['trace_id']}" class="compare-check"></td>
             <td><a href="/trace/{t['trace_id']}">{t['trace_id'][:16]}...</a></td>
             <td>{t.get('start_time', '—')}</td>
             <td>{model}</td>
@@ -114,9 +115,14 @@ async def trace_list(request: Request):
             <button type="submit">Search</button>
             <a href="/" class="clear-btn">Clear</a>
         </form>
+        <div class="compare-bar" id="compare-bar" style="display:none;">
+            <span id="compare-count">0</span> selected
+            <button onclick="compareTraces()">Compare</button>
+        </div>
         <table>
             <thead>
                 <tr>
+                    <th></th>
                     <th>Trace ID</th>
                     <th>Time</th>
                     <th>Model</th>
@@ -127,7 +133,65 @@ async def trace_list(request: Request):
             </thead>
             <tbody>{rows}</tbody>
         </table>
+        <script>
+            const checks = document.querySelectorAll('.compare-check');
+            const bar = document.getElementById('compare-bar');
+            const countEl = document.getElementById('compare-count');
+            checks.forEach(cb => cb.addEventListener('change', () => {{
+                const selected = document.querySelectorAll('.compare-check:checked');
+                countEl.textContent = selected.length;
+                bar.style.display = selected.length >= 2 ? 'flex' : 'none';
+            }}));
+            function compareTraces() {{
+                const selected = document.querySelectorAll('.compare-check:checked');
+                const ids = Array.from(selected).map(cb => cb.value);
+                window.location.href = '/compare?traces=' + ids.join(',');
+            }}
+        </script>
         """
+    )
+
+
+@app.get("/compare", response_class=HTMLResponse)
+async def compare_traces(request: Request):
+    trace_ids_raw = request.query_params.get("traces", "")
+    trace_ids = [t.strip() for t in trace_ids_raw.split(",") if t.strip()]
+
+    if len(trace_ids) < 2:
+        return PAGE_TEMPLATE.format(title="Compare", content="<h1>Select at least 2 traces to compare</h1><p><a href='/'>← Back</a></p>")
+
+    columns_html = ""
+    for trace_id in trace_ids:
+        spans = await query_clickhouse(f"""
+            SELECT
+                SpanId as span_id,
+                ParentSpanId as parent_span_id,
+                SpanName as name,
+                Timestamp as start_time,
+                Duration as duration_ns,
+                SpanAttributes as attributes,
+                StatusCode as status_code
+            FROM spans
+            WHERE TraceId = '{_sql_escape(trace_id)}'
+            ORDER BY Timestamp ASC
+        """)
+
+        if spans:
+            tree_html = build_span_tree(spans)
+        else:
+            tree_html = "<p>No spans found</p>"
+
+        columns_html += f"""
+        <div class="compare-column">
+            <div class="compare-column-header"><code>{trace_id[:12]}...</code></div>
+            <div class="trace-tree">{tree_html}</div>
+        </div>
+        """
+
+    return COMPARE_TEMPLATE.format(
+        title="Compare Traces",
+        columns=columns_html,
+        count=len(trace_ids),
     )
 
 
@@ -290,6 +354,9 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
         .search-bar button {{ background: #238636; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }}
         .search-bar button:hover {{ background: #2ea043; }}
         .clear-btn {{ color: #8b949e; font-size: 0.85rem; padding: 8px; }}
+        .compare-bar {{ display: flex; align-items: center; gap: 12px; margin-bottom: 12px; padding: 10px 14px; background: #1c2128; border: 1px solid #30363d; border-radius: 6px; }}
+        .compare-bar button {{ background: #1f6feb; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }}
+        .compare-bar button:hover {{ background: #388bfd; }}
         .trace-tree {{ margin-top: 16px; }}
         .span {{ border: 1px solid #21262d; border-radius: 6px; padding: 12px; margin-bottom: 8px; background: #161b22; }}
         .span.error {{ border-color: #f85149; }}
@@ -303,6 +370,41 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
     </style>
 </head>
 <body>{content}</body>
+</html>"""
+
+
+COMPARE_TEMPLATE = """<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>{title} — agentlog</title>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0d1117; color: #e6edf3; padding: 24px; }}
+        h1 {{ margin-bottom: 16px; font-size: 1.4rem; }}
+        a {{ color: #58a6ff; text-decoration: none; }}
+        a:hover {{ text-decoration: underline; }}
+        code {{ background: #161b22; padding: 2px 6px; border-radius: 4px; font-size: 0.85rem; }}
+        .compare-grid {{ display: grid; grid-template-columns: repeat({count}, 1fr); gap: 16px; overflow-x: auto; }}
+        .compare-column {{ min-width: 350px; }}
+        .compare-column-header {{ font-weight: 600; margin-bottom: 8px; padding: 8px; background: #1c2128; border-radius: 6px; text-align: center; }}
+        .trace-tree {{ margin-top: 8px; }}
+        .span {{ border: 1px solid #21262d; border-radius: 6px; padding: 10px; margin-bottom: 6px; background: #161b22; }}
+        .span.error {{ border-color: #f85149; }}
+        .span-header {{ display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }}
+        .meta {{ color: #8b949e; font-size: 0.75rem; }}
+        details {{ margin-top: 6px; }}
+        summary {{ cursor: pointer; color: #58a6ff; font-size: 0.8rem; }}
+        .messages {{ margin-top: 6px; font-size: 0.75rem; }}
+        .msg {{ padding: 4px 6px; margin-bottom: 3px; background: #0d1117; border-radius: 4px; white-space: pre-wrap; word-break: break-word; }}
+        .role {{ font-weight: 600; color: #7ee787; }}
+    </style>
+</head>
+<body>
+    <h1>Compare Traces</h1>
+    <p><a href="/">← Back to traces</a></p>
+    <div class="compare-grid">{columns}</div>
+</body>
 </html>"""
 
 
