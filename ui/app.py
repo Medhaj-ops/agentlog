@@ -161,7 +161,7 @@ async def compare_traces(request: Request):
         return PAGE_TEMPLATE.format(title="Compare", content="<h1>Select at least 2 traces to compare</h1><p><a href='/'>← Back</a></p>")
 
     columns_html = ""
-    for trace_id in trace_ids:
+    for i, trace_id in enumerate(trace_ids):
         spans = await query_clickhouse(f"""
             SELECT
                 SpanId as span_id,
@@ -187,11 +187,12 @@ async def compare_traces(request: Request):
             <div class="trace-tree">{tree_html}</div>
         </div>
         """
+        if i < len(trace_ids) - 1:
+            columns_html += '<div class="divider"></div>'
 
     return COMPARE_TEMPLATE.format(
         title="Compare Traces",
         columns=columns_html,
-        count=len(trace_ids),
     )
 
 
@@ -380,30 +381,85 @@ COMPARE_TEMPLATE = """<!DOCTYPE html>
     <title>{title} — agentlog</title>
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0d1117; color: #e6edf3; padding: 24px; }}
-        h1 {{ margin-bottom: 16px; font-size: 1.4rem; }}
-        a {{ color: #58a6ff; text-decoration: none; }}
-        a:hover {{ text-decoration: underline; }}
-        code {{ background: #161b22; padding: 2px 6px; border-radius: 4px; font-size: 0.85rem; }}
-        .compare-grid {{ display: grid; grid-template-columns: repeat({count}, 1fr); gap: 16px; overflow-x: auto; }}
-        .compare-column {{ min-width: 350px; }}
-        .compare-column-header {{ font-weight: 600; margin-bottom: 8px; padding: 8px; background: #1c2128; border-radius: 6px; text-align: center; }}
+        body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0d1117; color: #e6edf3; padding: 0; height: 100vh; display: flex; flex-direction: column; }}
+        .compare-header {{ padding: 16px 24px; border-bottom: 1px solid #21262d; background: #161b22; display: flex; align-items: center; gap: 16px; }}
+        .compare-header h1 {{ font-size: 1.2rem; margin: 0; }}
+        .compare-header a {{ color: #58a6ff; text-decoration: none; font-size: 0.85rem; }}
+        .compare-header a:hover {{ text-decoration: underline; }}
+        code {{ background: #21262d; padding: 2px 6px; border-radius: 4px; font-size: 0.8rem; color: #79c0ff; }}
+        .compare-container {{ display: flex; flex: 1; overflow: hidden; }}
+        .compare-column {{ flex: 1; overflow-y: auto; padding: 16px; min-width: 0; }}
+        .compare-column-header {{ font-weight: 600; margin-bottom: 12px; padding: 10px 12px; background: #1c2128; border: 1px solid #30363d; border-radius: 8px; text-align: center; font-size: 0.85rem; position: sticky; top: 0; z-index: 10; }}
+        .divider {{ width: 5px; background: #30363d; cursor: col-resize; flex-shrink: 0; position: relative; transition: background 0.15s; }}
+        .divider:hover, .divider.active {{ background: #58a6ff; }}
+        .divider::after {{ content: ''; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 3px; height: 32px; border-radius: 2px; background: #484f58; }}
+        .divider:hover::after, .divider.active::after {{ background: #58a6ff; }}
         .trace-tree {{ margin-top: 8px; }}
-        .span {{ border: 1px solid #21262d; border-radius: 6px; padding: 10px; margin-bottom: 6px; background: #161b22; }}
-        .span.error {{ border-color: #f85149; }}
-        .span-header {{ display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }}
-        .meta {{ color: #8b949e; font-size: 0.75rem; }}
-        details {{ margin-top: 6px; }}
-        summary {{ cursor: pointer; color: #58a6ff; font-size: 0.8rem; }}
-        .messages {{ margin-top: 6px; font-size: 0.75rem; }}
-        .msg {{ padding: 4px 6px; margin-bottom: 3px; background: #0d1117; border-radius: 4px; white-space: pre-wrap; word-break: break-word; }}
-        .role {{ font-weight: 600; color: #7ee787; }}
+        .span {{ border: 1px solid #21262d; border-radius: 8px; padding: 12px; margin-bottom: 8px; background: #161b22; transition: border-color 0.15s; }}
+        .span:hover {{ border-color: #30363d; }}
+        .span.error {{ border-color: #f85149; background: #1a1115; }}
+        .span-header {{ display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 4px; }}
+        .span-header strong {{ font-size: 0.9rem; color: #f0f6fc; }}
+        .meta {{ color: #8b949e; font-size: 0.75rem; font-family: 'SF Mono', 'Fira Code', monospace; }}
+        details {{ margin-top: 8px; }}
+        summary {{ cursor: pointer; color: #58a6ff; font-size: 0.8rem; padding: 4px 0; user-select: none; }}
+        summary:hover {{ color: #79c0ff; }}
+        .messages {{ margin-top: 8px; font-size: 0.75rem; border-left: 2px solid #21262d; padding-left: 10px; }}
+        .msg {{ padding: 6px 8px; margin-bottom: 4px; background: #0d1117; border-radius: 6px; white-space: pre-wrap; word-break: break-word; line-height: 1.4; }}
+        .role {{ font-weight: 600; color: #7ee787; margin-right: 6px; }}
     </style>
 </head>
 <body>
-    <h1>Compare Traces</h1>
-    <p><a href="/">← Back to traces</a></p>
-    <div class="compare-grid">{columns}</div>
+    <div class="compare-header">
+        <a href="/">← Traces</a>
+        <h1>Compare</h1>
+    </div>
+    <div class="compare-container" id="container">{columns}</div>
+    <script>
+        const container = document.getElementById('container');
+        const dividers = container.querySelectorAll('.divider');
+        let activeDivider = null;
+        let startX = 0;
+        let leftCol = null;
+        let rightCol = null;
+        let leftWidth = 0;
+        let rightWidth = 0;
+
+        dividers.forEach(div => {{
+            div.addEventListener('mousedown', (e) => {{
+                activeDivider = div;
+                activeDivider.classList.add('active');
+                leftCol = div.previousElementSibling;
+                rightCol = div.nextElementSibling;
+                startX = e.clientX;
+                leftWidth = leftCol.getBoundingClientRect().width;
+                rightWidth = rightCol.getBoundingClientRect().width;
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+                e.preventDefault();
+            }});
+        }});
+
+        document.addEventListener('mousemove', (e) => {{
+            if (!activeDivider) return;
+            const dx = e.clientX - startX;
+            const newLeft = Math.max(200, leftWidth + dx);
+            const newRight = Math.max(200, rightWidth - dx);
+            leftCol.style.flex = 'none';
+            rightCol.style.flex = 'none';
+            leftCol.style.width = newLeft + 'px';
+            rightCol.style.width = newRight + 'px';
+        }});
+
+        document.addEventListener('mouseup', () => {{
+            if (activeDivider) {{
+                activeDivider.classList.remove('active');
+                activeDivider = null;
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+            }}
+        }});
+    </script>
 </body>
 </html>"""
 

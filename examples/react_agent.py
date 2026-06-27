@@ -60,8 +60,8 @@ def run_agent():
             {"role": "user", "content": "What is the population density of Tokyo?"},
         ]
 
-        for step in range(3):
-            with tracer.start_as_current_span(f"step_{step}"):
+        for turn in range(3):
+            with tracer.start_as_current_span(f"turn_{turn}"):
                 response = client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=messages,
