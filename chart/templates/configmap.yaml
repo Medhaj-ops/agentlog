@@ -1,0 +1,92 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-collector-config
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+    processors:
+      batch:
+        timeout: 1s
+        send_batch_size: 1024
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 400
+        spike_limit_mib: 100
+
+    exporters:
+      clickhouse:
+        endpoint: tcp://{{ .Release.Name }}-clickhouse:9000
+        database: agentlog
+        traces_table_name: spans
+        create_schema: false
+        timeout: 10s
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 30s
+          max_elapsed_time: 300s
+
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+
+    service:
+      extensions: [health_check]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [clickhouse]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-clickhouse-init
+data:
+  001_init.sql: |
+    CREATE DATABASE IF NOT EXISTS agentlog;
+
+    CREATE TABLE IF NOT EXISTS agentlog.spans (
+        TraceId          String,
+        SpanId           String,
+        ParentSpanId     String,
+        TraceState       String,
+        SpanName         LowCardinality(String),
+        SpanKind         LowCardinality(String),
+        ServiceName      LowCardinality(String),
+        Timestamp        DateTime64(9) CODEC(Delta, ZSTD(1)),
+        Duration         Int64 CODEC(ZSTD(1)),
+        StatusCode       LowCardinality(String),
+        StatusMessage    String,
+        ScopeName        String,
+        ScopeVersion     String,
+        SpanAttributes   Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+        ResourceAttributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+        Events Nested(
+            Timestamp    DateTime64(9),
+            Name         LowCardinality(String),
+            Attributes   Map(LowCardinality(String), String)
+        ) CODEC(ZSTD(1)),
+        Links Nested(
+            TraceId      String,
+            SpanId       String,
+            TraceState   String,
+            Attributes   Map(LowCardinality(String), String)
+        ) CODEC(ZSTD(1)),
+        INDEX idx_trace_id TraceId TYPE bloom_filter(0.001) GRANULARITY 1,
+        INDEX idx_span_name SpanName TYPE bloom_filter(0.001) GRANULARITY 1,
+        INDEX idx_duration Duration TYPE minmax GRANULARITY 1
+    )
+    ENGINE = MergeTree()
+    PARTITION BY toDate(Timestamp)
+    ORDER BY (ServiceName, SpanName, toUnixTimestamp(Timestamp), TraceId)
+    TTL toDateTime(Timestamp) + INTERVAL {{ .Values.clickhouse.retention }} DAY
+    SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;

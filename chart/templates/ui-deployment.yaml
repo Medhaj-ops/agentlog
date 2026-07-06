@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-ui
+spec:
+  replicas: {{ .Values.ui.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-ui
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-ui
+    spec:
+      containers:
+        - name: ui
+          image: {{ .Values.ui.image }}
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: CLICKHOUSE_URL
+              value: http://{{ .Release.Name }}-clickhouse:8123
+            - name: CLICKHOUSE_DB
+              value: agentlog
+          resources:
+            requests:
+              cpu: {{ .Values.ui.resources.requests.cpu }}
+              memory: {{ .Values.ui.resources.requests.memory }}
+            limits:
+              cpu: {{ .Values.ui.resources.limits.cpu }}
+              memory: {{ .Values.ui.resources.limits.memory }}
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5

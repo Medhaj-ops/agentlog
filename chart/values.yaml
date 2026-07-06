@@ -1,0 +1,48 @@
+# Default configuration for agentlog Helm chart.
+# Override any value with --set or a custom values.yaml file.
+
+# --- ClickHouse (span storage) ---
+clickhouse:
+  image: clickhouse/clickhouse-server:24.8
+  storage: 10Gi
+  retention: 30  # days before spans are auto-deleted
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+
+# --- OTel Collector (span ingestion) ---
+collector:
+  image: otel/opentelemetry-collector-contrib:0.110.0
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# --- UI (trace viewer) ---
+ui:
+  image: agentlog-ui:latest
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  ingress:
+    enabled: false
+    host: agentlog.example.com
+    tls: false
+  auth:
+    enabled: false
+    provider: github  # github or google
+    clientId: ""
+    clientSecret: ""
