@@ -99,8 +99,18 @@ Respond with just the word, nothing else."""},
         agent_fn = AGENTS["tech"]
         print(f"  [supervisor] unknown route '{route}', defaulting to tech")
 
-    result = agent_fn(user_input)
-    return result
+    specialist_result = agent_fn(user_input)
+    print(f"  [{route}_agent] returned: {specialist_result[:60]}...")
+
+    final = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You are a supervisor. A specialist agent has answered the user's question. Review their answer and present a final, polished response to the user. Keep it concise."},
+            {"role": "user", "content": user_input},
+            {"role": "assistant", "content": f"Specialist response: {specialist_result}"},
+        ],
+    )
+    return final.choices[0].message.content
 
 
 if __name__ == "__main__":
