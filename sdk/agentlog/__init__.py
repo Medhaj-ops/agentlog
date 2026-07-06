@@ -11,3 +11,9 @@ def init(endpoint: str = "localhost:4317") -> None:
 
     setup(endpoint)
     patch_openai()
+
+    try:
+        from .instrument_litellm import patch_litellm
+        patch_litellm()
+    except ImportError:
+        pass
