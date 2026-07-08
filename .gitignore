@@ -226,3 +226,6 @@ ui/dist/
 ui/.turbo/
 collector/_build/
 *.log
+
+# Private developer docs
+dev/
