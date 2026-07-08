@@ -3,13 +3,26 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "agentlog-sdk"
-version = "0.1.0a0"
+name = "agentlog"
+version = "0.1.0a1"
 description = "OpenTelemetry-native observability for multi-agent LLM systems"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
-authors = [{ name = "Medhaj" }]
+authors = [{ name = "Medhaj", email = "114381637+Medhaj-ops@users.noreply.github.com" }]
+keywords = ["observability", "opentelemetry", "llm", "agents", "tracing", "multi-agent"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Libraries",
+  "Topic :: System :: Monitoring",
+]
 dependencies = [
   "opentelemetry-api>=1.27.0",
   "opentelemetry-sdk>=1.27.0",
@@ -22,6 +35,11 @@ openai = ["openai>=1.50.0"]
 litellm = ["litellm>=1.40.0"]
 anthropic = ["anthropic>=0.34.0"]
 dev = ["pytest>=8.0.0", "pytest-asyncio>=0.23.0", "ruff>=0.6.0"]
+
+[project.urls]
+Homepage = "https://github.com/Medhaj-ops/agentlog"
+Repository = "https://github.com/Medhaj-ops/agentlog"
+Issues = "https://github.com/Medhaj-ops/agentlog/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["agentlog"]
