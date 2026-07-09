@@ -2,7 +2,7 @@
 
 OpenTelemetry-native observability for multi-agent LLM systems.
 
-**Status:** v0.1 alpha — SDK and trace viewer working. Active development.
+**Status:** v0.1 alpha — SDK, trace viewer, Helm chart working. Active development.
 
 ## What it does
 
@@ -13,18 +13,19 @@ agentlog captures **full traces** of multi-agent LLM execution: every prompt, ev
 ## Architecture
 
 ```
-Your Python app (SDK patches OpenAI client)
+Your Python app (SDK patches LLM clients)
     ↓ OTLP/gRPC (port 4317)
-OTel Collector (batches, routes)
+OTel Collector (batches, routes, auto-scales via HPA)
     ↓ TCP (port 9000)
-ClickHouse (stores spans as rows)
+ClickHouse (stores spans, persistent volume, TTL retention)
     ↑ HTTP queries (port 8123)
-Web UI (trace list + span tree viewer)
+Web UI (trace list + span tree + multi-trace compare)
+    ↑ OAuth2 Proxy (optional authentication)
 ```
 
 ## What gets captured
 
-Every `chat.completions.create()` call emits a span with:
+Every LLM call (`openai.chat.completions.create` / `litellm.completion`) emits a span with:
 - Full messages array (prompt) and full response (completion)
 - Model requested and model resolved
 - Token counts (input + output)
@@ -32,7 +33,7 @@ Every `chat.completions.create()` call emits a span with:
 - Timing (start/end timestamps, duration)
 - Parent-child relationships (automatic from code nesting)
 
-## Quickstart
+## Quickstart (local dev)
 
 ```bash
 # 1. Start infrastructure
@@ -44,77 +45,119 @@ pip install -e "sdk[openai]"
 
 # 3. Run the demo
 export OPENAI_API_KEY="sk-..."
-python examples/react_agent.py
+python examples/multi_agent_demo.py "How does a CPU cache work?"
 
 # 4. View traces
-# Option A: collector debug output
-docker compose logs otel-collector
-
-# Option B: web UI (requires pip install fastapi uvicorn httpx)
+pip install fastapi uvicorn httpx
 python ui/app.py
 # Open http://localhost:3000
 ```
+
+## Deploy to Kubernetes
+
+```bash
+helm install agentlog ./chart
+```
+
+With authentication and ingress:
+
+```bash
+helm install agentlog ./chart \
+  --set ui.ingress.enabled=true \
+  --set ui.ingress.host=agentlog.yourdomain.com \
+  --set ui.auth.enabled=true \
+  --set ui.auth.provider=github \
+  --set ui.auth.clientId=YOUR_ID \
+  --set ui.auth.clientSecret=YOUR_SECRET
+```
+
+See [docs/deployment.md](docs/deployment.md) for full guide.
 
 ## SDK Usage
 
 ```python
 import agentlog
-agentlog.init()  # one line — patches OpenAI, sets up export to collector
+agentlog.init()  # patches OpenAI + LiteLLM, exports to collector
 
 # use OpenAI normally — every call is automatically traced
 client = openai.OpenAI()
 response = client.chat.completions.create(model="gpt-4o", messages=[...])
 ```
 
-For multi-agent systems, wrap agent logic in named spans:
+For multi-agent systems, use the `@agentlog.agent` decorator:
 
 ```python
-from agentlog.tracer import get_tracer
-tracer = get_tracer()
+@agentlog.agent(name="supervisor")
+def supervisor(user_input):
+    response = client.chat.completions.create(...)
+    result = researcher(response)       # sub-agent call
+    return synthesize(result)
 
-with tracer.start_as_current_span("supervisor"):
-    # LLM calls here are children of "supervisor"
-    with tracer.start_as_current_span("research_agent"):
-        # LLM calls here are children of "research_agent"
-        client.chat.completions.create(...)
+@agentlog.agent(name="researcher")
+def researcher(query):
+    return client.chat.completions.create(...)
 ```
 
-## Web UI
+Trace in UI:
+```
+supervisor
+├── chat.completions.create (routing)
+├── researcher
+│   └── chat.completions.create (research)
+└── chat.completions.create (synthesis)
+```
 
-The trace viewer shows:
+## Web UI Features
+
 - **Trace list** — recent traces with model, token counts, span count, duration
 - **Behavioral search** — filter by model, finish_reason, span name, token range, error status
-- **Trace detail** — nested span tree with expandable prompts and completions at each node
+- **Trace detail** — nested span tree with expandable prompts and completions
+- **Multi-trace compare** — select N traces, view side-by-side with draggable dividers
 
 ## Project Structure
 
 ```
-sdk/
-  agentlog/__init__.py      # Public API: agentlog.init()
-  agentlog/instrument.py    # Monkey-patches OpenAI Completions.create
-  agentlog/tracer.py        # Configures TracerProvider + OTLP exporter
-  agentlog/attributes.py    # gen_ai.* attribute name constants
+sdk/agentlog/
+  __init__.py               # Public API: init(), @agent decorator
+  instrument.py             # Patches OpenAI Completions.create
+  instrument_litellm.py     # Patches litellm.completion
+  decorator.py              # @agentlog.agent(name="X") decorator
+  tracer.py                 # TracerProvider + OTLP exporter setup
+  attributes.py             # gen_ai.* attribute name constants
 
 collector/
-  config.yaml               # OTel Collector pipeline: OTLP → batch → ClickHouse + debug
+  config.yaml               # OTel Collector pipeline config
+
+db/migrations/
+  001_init.sql              # ClickHouse schema (indexes, TTL, partitioning)
 
 ui/
-  app.py                    # FastAPI trace viewer (queries ClickHouse, renders HTML)
-  Dockerfile                # Container image for the UI
+  app.py                    # FastAPI trace viewer
+  Dockerfile                # Container image
+
+chart/                      # Helm chart for Kubernetes deployment
+  Chart.yaml
+  values.yaml               # All configurable options
+  templates/                # K8s manifests (StatefulSet, Deployments, HPA, OAuth, Ingress)
 
 examples/
-  react_agent.py            # 3-hop ReAct agent demo producing multi-span traces
+  react_agent.py            # Single agent with tool loop
+  multi_agent_demo.py       # Supervisor + 3 specialist agents
 
-docker-compose.yml          # ClickHouse + OTel Collector + UI
+docs/
+  sdk-quickstart.md         # Instrument your agents in 3 steps
+  deployment.md             # Deploy to Kubernetes
+  configuration.md          # Helm values reference
+  implementation.md         # Technical deep-dive
 ```
 
 ## Roadmap
 
-- [x] v0.1 — Python SDK (OpenAI sync), collector + ClickHouse, trace viewer UI, behavioral search
-- [ ] v0.2 — Trace diff view (side-by-side comparison of two traces)
+- [x] v0.1 — Python SDK (OpenAI + LiteLLM), `@agent` decorator, collector + ClickHouse, trace viewer UI, behavioral search, multi-trace compare, Helm chart, OAuth auth, HPA autoscaling
+- [ ] v0.2 — Cross-process trace propagation (HTTP middleware + traceparent)
 - [ ] v0.3 — `gen_ai.*` schema spec + upstream OTel SIG proposal
-- [ ] v0.4 — Anthropic SDK support, async/streaming, cross-process trace propagation
-- [ ] v0.5 — Regression detection (saved inputs + expected outputs, CI integration)
+- [ ] v0.4 — Anthropic SDK patcher, async/streaming support
+- [ ] v0.5 — Regression detection (golden traces, automated diff, CI integration)
 
 ## License
 
