@@ -3,6 +3,7 @@
 __version__ = "0.1.0a1"
 
 from .decorator import agent
+from .propagation import inject_context, extract_context
 
 
 def init(endpoint: str = "localhost:4317") -> None:
