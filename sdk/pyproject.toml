@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "agentlog"
+name = "agentlog-ai"
 version = "0.1.0a1"
 description = "OpenTelemetry-native observability for multi-agent LLM systems"
 readme = "README.md"
