@@ -1,6 +1,7 @@
 import json
 from opentelemetry.trace import StatusCode
 from . import attributes as attr
+from . import redact
 from .tracer import get_tracer
 
 _patched = False
@@ -24,7 +25,7 @@ def patch_litellm() -> None:
         with tracer.start_as_current_span("litellm.completion") as span:
             span.set_attribute(attr.SYSTEM, _extract_provider(model))
             span.set_attribute(attr.REQUEST_MODEL, model)
-            span.set_attribute(attr.PROMPT, json.dumps(messages, default=str))
+            span.set_attribute(attr.PROMPT, redact.apply(json.dumps(messages, default=str)))
 
             try:
                 response = _original_completion(*args, **kwargs)
@@ -57,7 +58,7 @@ def patch_litellm_async() -> None:
         with tracer.start_as_current_span("litellm.completion") as span:
             span.set_attribute(attr.SYSTEM, _extract_provider(model))
             span.set_attribute(attr.REQUEST_MODEL, model)
-            span.set_attribute(attr.PROMPT, json.dumps(messages, default=str))
+            span.set_attribute(attr.PROMPT, redact.apply(json.dumps(messages, default=str)))
 
             try:
                 response = await _original_acompletion(*args, **kwargs)
@@ -97,7 +98,7 @@ def _record_response(span, response, model: str) -> None:
                 }
                 for tc in message.tool_calls
             ]
-        span.set_attribute(attr.COMPLETION, json.dumps(completion, default=str))
+        span.set_attribute(attr.COMPLETION, redact.apply(json.dumps(completion, default=str)))
 
 
 def _extract_provider(model: str) -> str:

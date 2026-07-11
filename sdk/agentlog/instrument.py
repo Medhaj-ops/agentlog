@@ -1,6 +1,7 @@
 import json
 from opentelemetry.trace import StatusCode
 from . import attributes as attr
+from . import redact
 from .tracer import get_tracer
 
 _patched = False
@@ -24,7 +25,7 @@ def patch_openai() -> None:
         with tracer.start_as_current_span("chat.completions.create") as span:
             span.set_attribute(attr.SYSTEM, "openai")
             span.set_attribute(attr.REQUEST_MODEL, model)
-            span.set_attribute(attr.PROMPT, json.dumps(messages, default=str))
+            span.set_attribute(attr.PROMPT, redact.apply(json.dumps(messages, default=str)))
 
             try:
                 response = _original_create(self, *args, **kwargs)
@@ -56,7 +57,7 @@ def patch_openai() -> None:
                         }
                         for tc in message.tool_calls
                     ]
-                span.set_attribute(attr.COMPLETION, json.dumps(completion, default=str))
+                span.set_attribute(attr.COMPLETION, redact.apply(json.dumps(completion, default=str)))
 
             return response
 
@@ -81,7 +82,7 @@ def patch_openai_async() -> None:
         with tracer.start_as_current_span("chat.completions.create") as span:
             span.set_attribute(attr.SYSTEM, "openai")
             span.set_attribute(attr.REQUEST_MODEL, model)
-            span.set_attribute(attr.PROMPT, json.dumps(messages, default=str))
+            span.set_attribute(attr.PROMPT, redact.apply(json.dumps(messages, default=str)))
 
             try:
                 response = await _original_async_create(self, *args, **kwargs)
@@ -113,7 +114,7 @@ def patch_openai_async() -> None:
                         }
                         for tc in message.tool_calls
                     ]
-                span.set_attribute(attr.COMPLETION, json.dumps(completion, default=str))
+                span.set_attribute(attr.COMPLETION, redact.apply(json.dumps(completion, default=str)))
 
             return response
 
