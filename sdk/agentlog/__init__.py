@@ -8,13 +8,15 @@ from .propagation import inject_context, extract_context
 
 def init(endpoint: str = "localhost:4317") -> None:
     from .tracer import setup
-    from .instrument import patch_openai
+    from .instrument import patch_openai, patch_openai_async
 
     setup(endpoint)
     patch_openai()
+    patch_openai_async()
 
     try:
-        from .instrument_litellm import patch_litellm
+        from .instrument_litellm import patch_litellm, patch_litellm_async
         patch_litellm()
+        patch_litellm_async()
     except ImportError:
         pass
