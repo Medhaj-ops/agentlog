@@ -1,7 +1,12 @@
 import json
+
+from opentelemetry import context as otel_context
+from opentelemetry import trace as otel_trace
 from opentelemetry.trace import StatusCode
+
 from . import attributes as attr
 from . import redact
+from .stream_litellm import TracedAsyncLiteLLMStream, TracedLiteLLMStream
 from .tracer import get_tracer
 
 _patched = False
@@ -21,6 +26,27 @@ def patch_litellm() -> None:
         tracer = get_tracer()
         model = kwargs.get("model") or (args[0] if args else "unknown")
         messages = kwargs.get("messages") or (args[1] if len(args) > 1 else [])
+
+        if kwargs.get("stream"):
+            span = tracer.start_span("litellm.completion")
+            ctx = otel_trace.set_span_in_context(span)
+            token = otel_context.attach(ctx)
+
+            span.set_attribute(attr.SYSTEM, _extract_provider(model))
+            span.set_attribute(attr.REQUEST_MODEL, model)
+            span.set_attribute(attr.PROMPT, redact.apply(json.dumps(messages, default=str)))
+
+            try:
+                response = _original_completion(*args, **kwargs)
+            except Exception as exc:
+                span.set_status(StatusCode.ERROR, str(exc))
+                span.record_exception(exc)
+                span.end()
+                otel_context.detach(token)
+                raise
+
+            otel_context.detach(token)
+            return TracedLiteLLMStream(response, span)
 
         with tracer.start_as_current_span("litellm.completion") as span:
             span.set_attribute(attr.SYSTEM, _extract_provider(model))
@@ -54,6 +80,27 @@ def patch_litellm_async() -> None:
         tracer = get_tracer()
         model = kwargs.get("model") or (args[0] if args else "unknown")
         messages = kwargs.get("messages") or (args[1] if len(args) > 1 else [])
+
+        if kwargs.get("stream"):
+            span = tracer.start_span("litellm.completion")
+            ctx = otel_trace.set_span_in_context(span)
+            token = otel_context.attach(ctx)
+
+            span.set_attribute(attr.SYSTEM, _extract_provider(model))
+            span.set_attribute(attr.REQUEST_MODEL, model)
+            span.set_attribute(attr.PROMPT, redact.apply(json.dumps(messages, default=str)))
+
+            try:
+                response = await _original_acompletion(*args, **kwargs)
+            except Exception as exc:
+                span.set_status(StatusCode.ERROR, str(exc))
+                span.record_exception(exc)
+                span.end()
+                otel_context.detach(token)
+                raise
+
+            otel_context.detach(token)
+            return TracedAsyncLiteLLMStream(response, span)
 
         with tracer.start_as_current_span("litellm.completion") as span:
             span.set_attribute(attr.SYSTEM, _extract_provider(model))

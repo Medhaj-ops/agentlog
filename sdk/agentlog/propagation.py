@@ -1,5 +1,5 @@
 from opentelemetry import context
-from opentelemetry.propagate import inject, extract
+from opentelemetry.propagate import extract, inject
 
 
 def inject_context() -> dict:

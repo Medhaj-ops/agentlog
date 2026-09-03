@@ -1,7 +1,12 @@
 import json
+
+from opentelemetry import context as otel_context
+from opentelemetry import trace as otel_trace
 from opentelemetry.trace import StatusCode
+
 from . import attributes as attr
 from . import redact
+from .stream import TracedAsyncStream, TracedStream
 from .tracer import get_tracer
 
 _patched = False
@@ -21,6 +26,27 @@ def patch_openai() -> None:
         tracer = get_tracer()
         model = kwargs.get("model", "unknown")
         messages = kwargs.get("messages", [])
+
+        if kwargs.get("stream"):
+            span = tracer.start_span("chat.completions.create")
+            ctx = otel_trace.set_span_in_context(span)
+            token = otel_context.attach(ctx)
+
+            span.set_attribute(attr.SYSTEM, "openai")
+            span.set_attribute(attr.REQUEST_MODEL, model)
+            span.set_attribute(attr.PROMPT, redact.apply(json.dumps(messages, default=str)))
+
+            try:
+                response = _original_create(self, *args, **kwargs)
+            except Exception as exc:
+                span.set_status(StatusCode.ERROR, str(exc))
+                span.record_exception(exc)
+                span.end()
+                otel_context.detach(token)
+                raise
+
+            otel_context.detach(token)
+            return TracedStream(response, span)
 
         with tracer.start_as_current_span("chat.completions.create") as span:
             span.set_attribute(attr.SYSTEM, "openai")
@@ -78,6 +104,27 @@ def patch_openai_async() -> None:
         tracer = get_tracer()
         model = kwargs.get("model", "unknown")
         messages = kwargs.get("messages", [])
+
+        if kwargs.get("stream"):
+            span = tracer.start_span("chat.completions.create")
+            ctx = otel_trace.set_span_in_context(span)
+            token = otel_context.attach(ctx)
+
+            span.set_attribute(attr.SYSTEM, "openai")
+            span.set_attribute(attr.REQUEST_MODEL, model)
+            span.set_attribute(attr.PROMPT, redact.apply(json.dumps(messages, default=str)))
+
+            try:
+                response = await _original_async_create(self, *args, **kwargs)
+            except Exception as exc:
+                span.set_status(StatusCode.ERROR, str(exc))
+                span.record_exception(exc)
+                span.end()
+                otel_context.detach(token)
+                raise
+
+            otel_context.detach(token)
+            return TracedAsyncStream(response, span)
 
         with tracer.start_as_current_span("chat.completions.create") as span:
             span.set_attribute(attr.SYSTEM, "openai")

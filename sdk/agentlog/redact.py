@@ -1,5 +1,4 @@
 import re
-from typing import Union
 
 STANDARD_PATTERNS = [
     (r"sk-[a-zA-Z0-9_-]{20,}", "[REDACTED_API_KEY]"),
@@ -15,7 +14,7 @@ STANDARD_PATTERNS = [
 _compiled_patterns: list[tuple[re.Pattern, str]] = []
 
 
-def configure(rules: Union[str, list]) -> None:
+def configure(rules: str | list) -> None:
     """Configure redaction rules.
 
     Args:
